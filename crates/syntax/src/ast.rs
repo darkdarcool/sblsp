@@ -4,6 +4,31 @@ pub struct Span {
     pub end: usize,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum StrDenoter {
+    SingleQuote,
+    DoubleQuote,
+}
+
+impl From<StrDenoter> for char {
+    fn from(denoter: StrDenoter) -> char {
+        match denoter {
+            StrDenoter::SingleQuote => '\'',
+            StrDenoter::DoubleQuote => '"',
+        }
+    }
+}
+
+impl From<char> for StrDenoter {
+    fn from(denoter: char) -> StrDenoter {
+        match denoter {
+            '\'' => StrDenoter::SingleQuote,
+            '"' => StrDenoter::DoubleQuote,
+            _ => unreachable!(),
+        }
+    }
+}
+
 //#[allow(dead_code)]
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub enum TokenKind {
@@ -12,6 +37,7 @@ pub enum TokenKind {
 
     // Whitespace
     Whitespace,
+    Newline,
 
     // Values
     ValueNumber, // Can hold both integers and floats

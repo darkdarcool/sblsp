@@ -1,6 +1,13 @@
+// We use the `BYTE_HANDLERS` table for our parsing, which is just a table of functions
+// that correspond to a specific ascii byte value.
+//
+// Current challenges:
+// - For generics, you would need to be able to handle `>>` as `OpBitLshift`, this complicates
+//   things, and we may just have to insert two `OpGt` tokens instead. This would just be messier
+//   and I would hope to just have the generics part of the parsing be able to just "figure it out"
+
 use crate::ast::{Token, TokenKind};
 use crate::source::Source;
-use oxc_allocator::Allocator;
 
 /// Function that handles a specific byte value
 pub type ByteHandler = Option<for<'alloc> fn(&mut Lexer)>;
@@ -10,12 +17,12 @@ pub type ByteHandler = Option<for<'alloc> fn(&mut Lexer)>;
 #[rustfmt::skip]
 pub static BYTE_HANDLERS: [ByteHandler; 256] = [
 //   0    1    2    3    4    5    6    7    8    9    A    B    C    D    E    F   //
-    EOF, ___, ___, ___, ___, ___, ___, ___, ___, SPS, ___, ___, ___, ___, ___, ___, // 0
+    EOF, ___, ___, ___, ___, ___, ___, ___, ___, SPS, LNN, ___, ___, ___, ___, ___, // 0
     ___, ___, ___, ___, ___, ___, ___, ___, ___, ___, ___, ___, ___, ___, ___, ___, // 1
-    SPS, OEM, ___, SHT, IDN, OMD, OAD, ___, SLP, SRP, OSR, OPS, SCM, OMS, SDT, ODV, // 2
+    SPS, OEM, STR, SHT, IDN, OMD, OAD, CHR, SLP, SRP, OSR, OPS, SCM, OMS, SDT, ODV, // 2
     NUM, NUM, NUM, NUM, NUM, NUM, NUM, NUM, NUM, NUM, SAC, SBC, OLT, OEQ, OGT, SQM, // 3
-    SAT, IDN, ___, ___, ___, ___, ___, ___, ___, ___, ___, ___, ___, ___, ___, ___, // 4
-    ___, ___, ___, ___, ___, ___, ___, ___, ___, ___, ___, SLB, SRB, ___, ___, ___, // 5
+    SAT, IDN, IDN, IDN, IDN, IDN, IDN, IDN, IDN, IDN, IDN, IDN, IDN, IDN, IDN, IDN, // 4
+    IDN, IDN, IDN, IDN, IDN, IDN, IDN, IDN, IDN, IDN, IDN, SLB, SRB, ___, ___, ___, // 5
     ___, LLA, LLB, LLC, LLD, LLE, LLF, IDN, IDN, LLI, IDN, IDN, LLL, LLM, LLN, LLO, // 6
     LLP, IDN, LLR, LLS, LLT, LLU, LLV, LLW, IDN, IDN, IDN, SLC, OVB, SRC, OTE, ___, // 7
     UNI, UNI, UNI, UNI, UNI, UNI, UNI, UNI, OCT, UNI, UNI, UNI, UNI, UNI, UNI, UNI, // 8
@@ -33,12 +40,30 @@ pub const IDN: ByteHandler = Some(|lex| {
     lex.identifier_handler();
     // println!("identifier");
 
-    //lex.token.kind = TokenKind::Identifier;
+    lex.token.kind = TokenKind::Identifier;
+});
+
+/// Line new (\n)
+pub const LNN: ByteHandler = Some(|lex| {
+    lex.bump();
+    lex.token.kind = TokenKind::Newline;
 });
 
 pub const NUM: ByteHandler = Some(|lex| {
     lex.number_handler();
     lex.token.kind = TokenKind::ValueNumber;
+});
+
+pub const STR: ByteHandler = Some(|lex| {
+    // let denoter_kind = StrDenoter::from(lex.read_byte() as char);
+    lex.string_handler();
+    lex.token.kind = TokenKind::ValueString;
+});
+
+pub const CHR: ByteHandler = Some(|lex| {
+    // let denoter_kind = StrDenoter::from(lex.read_byte() as char);
+    lex.char_handler();
+    lex.token.kind = TokenKind::ValueChar;
 });
 
 /// Whitespace
@@ -234,7 +259,7 @@ pub const OLT: ByteHandler = Some(|lex| {
         lex.bump();
     } else if lex.read_byte() == b'<' {
         // lex.token.kind = TokenKind::OpBitRshift;
-        lex.bump();
+        //lex.bump();
         if lex.read_byte() == b'=' {
             lex.token.kind = TokenKind::OpBitLshiftEq;
             lex.bump();
@@ -611,6 +636,54 @@ impl Lexer {
                 break;
             }
         }
+
+        &self.source.get_slice(start, self.source.get_current_pos())
+    }
+}
+
+// Strings
+impl Lexer {
+    pub(super) fn string_handler<'a>(&mut self) -> &'a str {
+        let start = self.source.current_pos();
+
+        while !self.is_at_end() {
+            let byte = self.read_byte();
+
+            if byte == b'\\' {
+                self.bump(); // move past the backslash
+                             // TODO: Make an actual escape sequence handler - this is just a place holder
+                self.bump(); // move past the escaped character
+            }
+
+            if byte != b'"' {
+                self.bump();
+            } else {
+                break;
+            }
+        }
+
+        // move past the last quote
+        self.bump();
+
+        &self.source.get_slice(start, self.source.get_current_pos())
+    }
+
+    pub(super) fn char_handler<'a>(&mut self) -> &'a str {
+        let start = self.source.current_pos();
+
+        self.bump(); // move past the first quote
+
+        let next_byte = self.read_byte();
+
+        if next_byte == b'\\' {
+            self.bump(); // move past the backslash
+            self.bump();
+        } else {
+            self.bump();
+        }
+
+        // move past the last quote
+        self.bump();
 
         &self.source.get_slice(start, self.source.get_current_pos())
     }
